@@ -1,0 +1,236 @@
+#define VERSION F("1.0.4 ")
+const char compile_date[] = __DATE__ " " __TIME__;
+
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+
+#include "Credentials.h"
+
+#include <ArduinoJson.h>
+
+int Huidigverbruik, Huidiglevering, Counter, CounterDeliv, CounterDelivToday, CounterToday, IDX;
+float Hoogtarief, Laagtarief, Teruglaag, Terughoog;
+String DateTime, Name;
+
+int IDXIDgas = 34;
+int IDXIDpower = 24;
+int IDXID = IDXIDpower;  // starting with power data
+int nowstatus = 1;
+
+
+void setup() {
+
+  Serial.begin(115200);
+  Serial.print("VERSION: ");
+  Serial.println(VERSION);
+  Serial.print("Compile date: ");
+  Serial.println(compile_date);
+  Serial.println();
+
+  //WiFi.begin(STASSID, STAPSK);
+  WiFi.begin(ssid, pass);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected! IP address: ");
+  Serial.println(WiFi.localIP());
+
+}
+
+void loop() {
+  // wait for WiFi connection
+  if ((WiFi.status() == WL_CONNECTED)) {
+
+    WiFiClient client;
+    HTTPClient http;
+
+    // Send request
+    http.useHTTP10(true);
+    String adddata = ("http://192.168.0.136:8855/json.htm?type=devices&rid=");  // first string to connect domotics API
+    adddata += IDXID;  // add domotics IDX of P1 sensor, changes after post to webpage, idx for power and a idx for gas
+
+    http.begin(client, adddata); // get data from the domotics API
+    int httpCode = http.GET();
+
+    // Allocate the JSON document
+    // Use arduinojson.org/v6/assistant to compute the capacity.
+    StaticJsonDocument <1782> doc;
+    if (httpCode > 0) {
+      // Get the request response payload
+      String payload = http.getString();
+      //Parsing
+      deserializeJson(doc, payload);
+      JsonObject result_0 = doc["result"][0];  // json object holds the API data
+
+      // parameters
+      String Counter = result_0["Counter"]; // Counter of meter (elec)
+      String CounterDeliv = result_0["CounterDeliv"]; // Counter delivery of meter (elec)
+      String CounterDelivToday = result_0["CounterDelivToday"]; // Counter delivery today of meter (elec)
+      String CounterToday = result_0["CounterToday"]; // Counter today of meter (elec)
+      String Huidigverbruik = result_0["Usage"]; // actual consumption, string combines integer with string
+      String Huidiglevering = result_0["UsageDeliv"]; // actual consumption, string combines integer with string
+      const char* idx = result_0["idx"]; // idx sensor (power, gas)
+      String result_0_Data = result_0["Data"]; // complete dataset
+      String DateTime = result_0["LastUpdate"]; // Last update data
+      String Name = result_0["Name"]; // Sensor name, Power of Gas
+
+      // split json string object and converse to integer, without the string Watt
+      int intHuidigverbruik = 0;
+      int intHuidiglevering = 0;
+
+      int index = Huidigverbruik.indexOf('W');
+      int index1 = Huidiglevering.indexOf('W');
+
+      intHuidigverbruik = Huidigverbruik.substring(0, index).toInt();
+      intHuidiglevering = Huidiglevering.substring(0, index1).toInt();
+
+      // split json string object and converse to integer, without the string Watt
+      int i1 = result_0_Data.indexOf(';');
+      int i2 = result_0_Data.indexOf(';', i1 + 1);
+      int i3 = result_0_Data.indexOf(';', i2 + 1);
+      int i4 = result_0_Data.indexOf(';', i3 + 1);
+      // converse to float and store
+      Hoogtarief = result_0_Data.substring(0, i1).toFloat() / 1000;
+      Laagtarief = result_0_Data.substring(i1 + 1, i2).toFloat() / 1000;
+      Teruglaag = result_0_Data.substring(i1 + 1, i2).toFloat() / 1000;
+      Terughoog = result_0_Data.substring(i3 + 1, i4).toFloat() / 1000;
+
+      // if sensor is gas, then reset varibles
+      if ( IDXID == IDXIDgas) {
+        Hoogtarief = 0.00;
+        Laagtarief = 0.00;
+        Teruglaag = 0.00;
+        Terughoog = 0.00;
+      }
+
+      // end split
+
+      String buff = result_0_Data;
+
+      // Read values
+      Serial.print("Data: ");
+      Serial.println(result_0_Data);
+      Serial.println("-----------------------------");
+      Serial.print("Counter: "); // Counter of meter (elec)
+      Serial.println(Counter);
+      Serial.print("CounterDeliv: "); // Counter delivery of meter (elec)
+      Serial.println(CounterDeliv);
+      Serial.print("CounterDelivToday: "); // Counter delivery today of meter (elec)
+      Serial.println(CounterDelivToday.substring(0, 4));
+      Serial.print("CounterToday: "); // Counter today of meter (elec)
+      Serial.println(CounterToday.substring(0, 4));
+      Serial.print("idx: "); // idx sensor (elec)
+      Serial.println(idx);
+      Serial.print("Hoogtarief: "); // 1
+      Serial.println(Hoogtarief);
+      Serial.print("Laagtarief: ");  //2
+      Serial.println(Laagtarief);
+      Serial.print("Teruglaag: ");  //3
+      Serial.println(Teruglaag);
+      Serial.print("Terughoog: ");  //4
+      Serial.println(Terughoog);
+      Serial.print("Huidigverbruik: ");  //5
+      Serial.println(intHuidigverbruik);
+      Serial.print("Huidiglevering: ");  //6
+      Serial.println(intHuidiglevering);
+      Serial.print("Last Update: "); // last update data
+      Serial.println(DateTime);
+      Serial.print("Name: ");  // name sensor
+      Serial.println(Name);
+      Serial.println("-----------------------------");
+      delay(30000);
+
+      // check if webpage is reachable
+      const int httpPort = 80;
+      if (!client.connect(host, httpPort)) {
+        Serial.println("connection failed");
+        return;
+      }
+
+      ////////////////   sending to url for insert into mysql db   //////////////////////////
+      String url = directory;  // see defination in Credentials.h
+      url += "?Counter=";
+      url += Counter;
+      url += "&CounterDeliv=";
+      url += CounterDeliv;
+      url += "&CounterDelivToday=";
+      url += CounterDelivToday.substring(0, 4);
+      url += "&CounterToday=";
+      url += CounterToday.substring(0, 4);
+      url += "&idx=";
+      url += idx;
+      url += "&Hoogtarief=";
+      url += Hoogtarief;
+      url += "&Laagtarief=";
+      url += Laagtarief;
+      url += "&Teruglaag=";
+      url += Teruglaag;
+      url += "&Terughoog=";
+      url += Terughoog;
+      url += "&Huidigverbruik=";
+      url += intHuidigverbruik;
+      url += "&Huidiglevering=";
+      url += intHuidiglevering;
+      url += "&Name=";
+      url += Name;
+      url += "&SecCode=";
+      url += SecCode;
+
+      //for testing only!
+      // Serial.print("Requesting URL: ");
+      // Serial.println(url);
+
+
+      Serial.print("Requesting URL: ");
+      Serial.println(url); // This will send the request to the server
+      client.print(String("GET ") + url + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "Connection: close\r\n\r\n");
+      // This will send the request to the server
+      delay(10);  // for stability
+      // end sending data to webpage
+
+      // when IDX, domoticz sensor is readed then change IDX for next sensor reading
+      if (nowstatus == 0) {
+        nowstatus = 1;
+        IDXID = IDXIDpower;
+      }
+      else
+      {
+        nowstatus = 0;
+        IDXID = IDXIDgas;
+      };
+
+      http.end(); // close connecting
+    }
+
+    //reset variables
+    Counter = NULL;
+
+    CounterDeliv = NULL;
+
+    CounterDelivToday = NULL;
+
+    CounterToday = NULL;
+
+    Hoogtarief = 0.00;
+
+    Laagtarief = 0.00;
+
+    Teruglaag = 0.00;
+
+    Terughoog = 0.00;
+
+    Huidigverbruik = NULL;
+
+    Huidiglevering = NULL;
+
+
+
+    /////
+
+
+    delay(10000);
+  }
+}
