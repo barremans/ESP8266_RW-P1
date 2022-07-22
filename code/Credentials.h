@@ -21,8 +21,8 @@ int IDXIDpower = 24;   // Elec
 int IDXIDpowerL1 = 25; // Voltage line 1
 int IDXIDpowerL3 = 27; // Voltage line 3
 int IDXIDpowerU1 = 28; // usage on line 1
-int IDXIDpowerU3 = 30; // usage on line 3  // NEW TO ADD
-int IDXIDpowerD1 = 31; // delivery on line 1  // NEW TO ADD
+int IDXIDpowerU3 = 30; // usage on line 3
+int IDXIDpowerD1 = 31; // delivery on line 1
 int IDXIDpowerD3 = 33; // delivery on line 3
 
 // blink times and pin Led ID's
